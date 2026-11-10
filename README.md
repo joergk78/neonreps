@@ -8,7 +8,7 @@
 
 ## Planned features
 
-- Two configurable full-body workout plans (A/B) with an upper-body focus
+- Flexible, user-configurable workout plans (full-body, upper/lower, 3-way splits, or custom routines)
 - Quick weight and repetition adjustments and one-tap set logging
 - Automatic display of previously used working weights
 - Rest timer with the option to finish a break early
