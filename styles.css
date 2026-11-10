@@ -54,7 +54,7 @@ a { color: var(--green-soft); }
 .plan-card { width: 100%; text-align: left; display: grid; gap: 9px; padding: 20px; }
 .plan-card:hover { border-color: var(--green); }
 .plan-letter { height: 47px; width: 47px; display: grid; place-items: center; border: 1px solid #347c45; border-radius: 12px; color: var(--green); font-size: 23px; font-weight: 900; background: #101d13; }
-.plan-name { font-size: 23px; font-weight: 850; }
+.plan-name { font-size: 23px; font-weight: 850; color: var(--green); }
 .plan-card .arrow { font-size: 26px; color: var(--green-soft); }
 .btn { border: 1px solid #43604a; background: #1b281e; color: var(--text); border-radius: 14px; min-height: 52px; padding: 11px 14px; font-size: 15px; font-weight: 800; }
 .btn-primary { background: var(--green); border-color: var(--green); color: #061309; }
