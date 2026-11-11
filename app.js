@@ -1,7 +1,7 @@
 /* Trainingslog: komplett lokal, ohne Backend und ohne externe Laufzeit-Abhängigkeiten. */
 const DATABASE_NAME = "trainingslog-v1";
 const DATABASE_VERSION = 2;
-const APP_VERSION = "0.4";
+const APP_VERSION = "0.4.1";
 const APP_SETTINGS_KEY = "trainingslog-settings-v1";
 const END_REASONS = ["Schmerzen/Beschwerden", "Gerät besetzt", "Zeitmangel", "Erschöpfung", "Sonstiges", "Ohne Angabe"];
 
@@ -115,6 +115,24 @@ async function saveSetAndSession(savedSet, session) {
   const done = transactionComplete(tx);
   tx.objectStore("sets").put(savedSet);
   tx.objectStore("sessions").put(session);
+  await done;
+}
+
+async function deleteFinishedSession(sessionId) {
+  const session = await getOne("sessions", sessionId);
+  if (!session?.finishedAt) throw new Error("Nur abgeschlossene Trainingseinheiten können aus dem Verlauf gelöscht werden.");
+  const tx = database.transaction(["sessions", "sets"], "readwrite");
+  const done = transactionComplete(tx);
+  const sessionStore = tx.objectStore("sessions");
+  const setStore = tx.objectStore("sets");
+  const cursorRequest = setStore.openCursor();
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (!cursor) return;
+    if (cursor.value.sessionId === sessionId) cursor.delete();
+    cursor.continue();
+  };
+  sessionStore.delete(sessionId);
   await done;
 }
 
@@ -547,7 +565,7 @@ function endedHistoryRows(session, allSets) {
 function historyScreen(sessions, allSets) {
   const finished = sessions.filter((session) => session.finishedAt).sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   const selected = finished.find((session) => session.id === state.selectedSession);
-const details = selected ? `<div class="card card-pad" style="margin-top:13px"><div class="row"><strong>${escapeHtml(selected.planName)} · V${selected.planSnapshot?.version || 1}</strong><span class="small muted">${date(selected.startedAt)}</span></div>${allSets.filter((set) => set.sessionId === selected.id).sort((a, b) => a.savedAt.localeCompare(b.savedAt)).map((set) => `<div class="data-row"><div><div class="small strong">${escapeHtml(set.exerciseName)} · Satz ${set.setNumber}</div><div class="tiny muted">${clock(set.savedAt)}</div></div><span class="strong small">${n(set.weight)} kg × ${set.reps}</span></div>`).join("")}${Object.entries(selected.skippedExercises || {}).map(([exerciseId, skipped]) => `<div class="data-row"><div><div class="small strong">${escapeHtml(selected.planSnapshot?.exercises.find((ex) => ex.id === exerciseId)?.name || exerciseId)}</div><div class="tiny muted">Ausgefallen: ${escapeHtml(skipped.reason)}</div></div><span class="pill pill-warning">Ausfall</span></div>`).join("")}${endedHistoryRows(selected, allSets)}</div>` : "";
+const details = selected ? `<div class="card card-pad" style="margin-top:13px"><div class="row"><strong>${escapeHtml(selected.planName)} · V${selected.planSnapshot?.version || 1}</strong><span class="small muted">${date(selected.startedAt)}</span></div>${allSets.filter((set) => set.sessionId === selected.id).sort((a, b) => a.savedAt.localeCompare(b.savedAt)).map((set) => `<div class="data-row"><div><div class="small strong">${escapeHtml(set.exerciseName)} · Satz ${set.setNumber}</div><div class="tiny muted">${clock(set.savedAt)}</div></div><span class="strong small">${n(set.weight)} kg × ${set.reps}</span></div>`).join("")}${Object.entries(selected.skippedExercises || {}).map(([exerciseId, skipped]) => `<div class="data-row"><div><div class="small strong">${escapeHtml(selected.planSnapshot?.exercises.find((ex) => ex.id === exerciseId)?.name || exerciseId)}</div><div class="tiny muted">Ausgefallen: ${escapeHtml(skipped.reason)}</div></div><span class="pill pill-warning">Ausfall</span></div>`).join("")}${endedHistoryRows(selected, allSets)}<button class="btn btn-danger-soft btn-full history-delete" data-act="delete-history-session" data-id="${escapeHtml(selected.id)}">Trainingseinheit löschen</button></div>` : "";
   return `<div class="eyebrow">DEINE TRAININGSDATEN</div><h1 class="h1">Verlauf.</h1><p class="lead">Alle abgeschlossenen Einheiten und deine Entwicklung auf einen Blick.</p>
     <div class="card card-pad"><div class="row"><div><div class="big">${finished.length}</div><div class="small muted">Trainingseinheiten</div></div><div><div class="big">${allSets.length}</div><div class="small muted">gespeicherte Sätze</div></div></div></div>
     ${progressChart(allSets, sessions)}<div class="section-title">Trainingseinheiten</div><div class="card card-pad">${finished.length ? finished.map((session) => `<button class="list-item" data-act="history-detail" data-id="${escapeHtml(session.id)}"><div><div class="list-item-title">${escapeHtml(session.planName)}</div><div class="list-item-desc">${date(session.startedAt)} · ${clock(session.startedAt)} Uhr · ${allSets.filter((set) => set.sessionId === session.id).length} Sätze</div></div><span class="tag">${state.selectedSession === session.id ? "▲" : "▼"}</span></button>`).join("") : `<div class="empty">Hier erscheint nach deinem ersten Training die Historie.</div>`}</div>${details}`;
@@ -801,6 +819,16 @@ async function handleAction(button) {
     case "toggle-rest-setting": state.restTimerEnabled = !state.restTimerEnabled; saveSettings(); toast(`Pausentimer ${state.restTimerEnabled ? "aktiviert" : "deaktiviert"}.`); await render(); break;
     case "finish": state.screen = "summary"; await render(); break;
     case "history-detail": state.selectedSession = state.selectedSession === button.dataset.id ? null : button.dataset.id; await render(); break;
+    case "delete-history-session": {
+      const session = await getOne("sessions", button.dataset.id);
+      if (!session?.finishedAt) { toast("Trainingseinheit nicht gefunden."); await render(); break; }
+      if (!confirm(`Training vom ${date(session.startedAt)} endgültig löschen?\\n\\nDie Trainingseinheit und alle zugehörigen Sätze werden unwiderruflich gelöscht.\\n\\nAbbrechen = behalten · OK = endgültig löschen`)) break;
+      await deleteFinishedSession(session.id);
+      state.selectedSession = null;
+      toast("Trainingseinheit und zugehörige Sätze gelöscht.");
+      await render();
+      break;
+    }
     case "edit-exercise": state.editing = { planId: button.dataset.plan, exerciseId: button.dataset.exercise }; await render(); break;
     case "add-exercise": state.editing = { planId: button.dataset.plan, exerciseId: null }; await render(); break;
     case "cancel-edit": state.editing = null; await render(); break;
